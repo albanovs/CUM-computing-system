@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import { InstallmentModel } from "@/lib/models/all_data";
+import CashSession from "@/lib/models/CashSession";
 
 const TELEGRAM_BOT_TOKEN = '8396661511:AAHXdQYMm_NPAN1hbFw2Owmn6kgsJ6_j2T0';
 const TELEGRAM_CHAT_ID = '-4938428460';
@@ -36,19 +37,12 @@ export async function POST(req, { params }) {
         return NextResponse.json({ error: "Клиент не найден" }, { status: 404 });
     }
 
-    for (const p of payments) {
-        if (typeof p.plan !== "number" || isNaN(p.plan)) {
-            return NextResponse.json({ error: "Каждый платеж должен содержать корректное число в поле plan" }, { status: 400 });
-        }
-        if (typeof p.paid !== "number" || isNaN(p.paid)) {
-            return NextResponse.json({ error: "Каждый платеж должен содержать корректное число в поле paid" }, { status: 400 });
-        }
-    }
-
+    // Обновляем платежи
     client.payments = payments;
     client.remainingAmount = Number(remainingAmount) || 0;
     await client.save();
 
+    // Отправка Telegram
     const paidPayments = payments.filter(p => p.paid > 0);
     if (paidPayments.length > 0) {
         let message = `<b>Клиент внёс оплату</b>\n`;
@@ -59,11 +53,43 @@ export async function POST(req, { params }) {
             const overdue = p.overdueDays > 0 ? ` (Просрочка: ${p.overdueDays} дн.)` : '';
             message += `Дата: ${date}, План: ${p.plan} сом, Оплачено: ${p.paid} сом${overdue}\n`;
         });
-
         message += `\nОстаток: ${client.remainingAmount} сом\n`;
 
         await sendTelegramMessage(message);
     }
+
+    // --- Добавляем оплату в кассу ---
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    let session = await CashSession.findOne({ date: { $gte: todayStart, $lte: todayEnd } });
+
+    // Если касса не найдена или закрыта — открываем новую
+    if (!session) {
+        session = await CashSession.create({
+            date: new Date(),
+            status: "open",
+            income: [],
+            expense: [],
+        });
+    } else if (session.status === "closed") {
+        session.status = "open";
+    }
+
+    // Добавляем приход
+    if (paidPayments.length > 0) {
+        const totalPaid = paidPayments.reduce((sum, p) => sum + p.paid, 0);
+        session.income.push({
+            amount: totalPaid,
+            comment: `Оплата от клиента: ${client.name}`,
+            paymentType: "cash",
+            createdAt: new Date(),
+        });
+    }
+
+    await session.save();
 
     return NextResponse.json(client);
 }

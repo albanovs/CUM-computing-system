@@ -1,17 +1,30 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useDispatch } from "react-redux";
+import { updateClientPayments } from "@/lib/slices/clientsSlice";
 
-export default function Modal({ data, onClose, onUpdated }) {
+export default function Modal({ data, onClose }) {
+    const dispatch = useDispatch();
+
     const [amount, setAmount] = useState("");
     const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
     const [error, setError] = useState("");
 
-    const isPaidOff = Number(data.remainingAmount) === 0;
+    // Локальные данные для мгновенного обновления UI
+    const [payments, setPayments] = useState(
+        (data.payments || []).map(p => ({ ...p, plan_date: new Date(p.plan_date) }))
+    );
+    const [remainingAmount, setRemainingAmount] = useState(data.remainingAmount || 0);
 
-    const getNextPaymentDate = () => {
+    const [loading, setLoading] = useState(false); // флаг запроса
+
+    const isPaidOff = Number(remainingAmount) === 0;
+
+    // Функция расчёта следующей даты оплаты
+    const getNextPaymentDate = (paymentsArr = payments) => {
         const today = new Date();
-        const unpaidPayments = data.payments?.filter(p => (p.plan - (p.paid || 0)) > 0);
+        const unpaidPayments = paymentsArr?.filter(p => (p.plan - (p.paid || 0)) > 0);
         if (!unpaidPayments || unpaidPayments.length === 0) return null;
 
         const next = unpaidPayments.find(p => new Date(p.plan_date) >= today);
@@ -22,28 +35,34 @@ export default function Modal({ data, onClose, onUpdated }) {
 
     useEffect(() => {
         if (!isPaidOff) setNextPaymentDate(getNextPaymentDate());
-    }, [data]);
+    }, [payments]);
 
     const handleSubmit = async () => {
+        if (loading) return; // блокируем повторный клик
+        setLoading(true);
         setError("");
 
         if (!amount) {
             setError("Введите сумму оплаты");
+            setLoading(false);
             return;
         }
 
         let remainingPayment = Number(amount);
         if (remainingPayment <= 0) {
             setError("Сумма должна быть больше 0");
+            setLoading(false);
             return;
         }
 
-        if (remainingPayment > data.remainingAmount) {
-            setError(`Сумма платежа (${amount}) превышает остаток (${data.remainingAmount})`);
+        if (remainingPayment > remainingAmount) {
+            setError(`Сумма платежа (${amount}) превышает остаток (${remainingAmount})`);
+            setLoading(false);
             return;
         }
 
-        const paymentsCopy = data.payments.map(p => ({
+        // Копия платежей
+        const paymentsCopy = payments.map(p => ({
             plan_date: new Date(p.plan_date),
             plan: Number(p.plan),
             paid: Number(p.paid) || 0,
@@ -60,9 +79,7 @@ export default function Modal({ data, onClose, onUpdated }) {
             const planDate = new Date(p.plan_date);
             const diffTime = today - planDate;
             const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-            if (diffDays > 0) {
-                p.overdueDays = diffDays;
-            }
+            if (diffDays > 0) p.overdueDays = diffDays;
 
             if (remainingPayment >= unpaid) {
                 p.paid += unpaid;
@@ -87,16 +104,35 @@ export default function Modal({ data, onClose, onUpdated }) {
 
             if (!res.ok) {
                 setError(updated.error || "Ошибка при отправке оплаты");
+                setLoading(false);
                 return;
             }
 
-            onUpdated(updated);
+            // Преобразуем plan_date в Date
+            const updatedPayments = (updated.payments || []).map(p => ({
+                ...p,
+                plan_date: new Date(p.plan_date)
+            }));
+
+            // Обновляем Redux
+            dispatch(updateClientPayments({
+                id: data._id,
+                payments: updatedPayments,
+                remainingAmount: updated.remainingAmount
+            }));
+
+            // Мгновенное обновление UI
+            setPayments(updatedPayments);
+            setRemainingAmount(updated.remainingAmount);
+            setNextPaymentDate(getNextPaymentDate(updatedPayments));
             setAmount("");
             setDate(new Date().toISOString().slice(0, 10));
-            setNextPaymentDate(getNextPaymentDate());
+
         } catch (err) {
             console.error(err);
             setError("Ошибка при отправке оплаты");
+        } finally {
+            setLoading(false); // снимаем блокировку кнопки
         }
     };
 
@@ -114,7 +150,7 @@ export default function Modal({ data, onClose, onUpdated }) {
                     <p className="mb-2"><strong>Адрес:</strong> {data.address}</p>
                     <p className="mb-2"><strong>Марка телефона:</strong> {data.phoneModel}</p>
                     <p className="mb-2"><strong>Номер телефона:</strong> {data.phoneNumber}</p>
-                    <p className="mb-2"><strong>Остаток:</strong> {data.remainingAmount}</p>
+                    <p className="mb-2"><strong>Остаток:</strong> {remainingAmount}</p>
 
                     {!isPaidOff && (
                         <p className="mt-2 mb-4 text-sm">
@@ -132,37 +168,45 @@ export default function Modal({ data, onClose, onUpdated }) {
                                 value={amount}
                                 onChange={(e) => setAmount(e.target.value)}
                                 className="border border-gray-300 p-2 rounded w-full mb-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                disabled={loading}
                             />
                             <input
                                 type="date"
                                 value={date}
                                 onChange={(e) => setDate(e.target.value)}
                                 className="border border-gray-300 p-2 rounded w-full mb-4 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                disabled={loading}
                             />
                         </>
                     )}
 
                     <h3 className="text-lg font-semibold mb-2">История оплат</h3>
                     <ul className="overflow-y-scroll h-40 border rounded p-2 bg-gray-50">
-                        {data.payments?.map((p, i) => (
+                        {payments?.map((p, i) => (
                             <li key={i} className="flex justify-between p-2 border-b text-sm last:border-b-0">
                                 <span>
                                     План: {p.plan} сом / Факт: {p.paid || 0} сом
                                 </span>
                                 <span>
-                                    План дата: {new Date(p.plan_date).toLocaleDateString("ru-RU")}<br />
+                                    План дата: {p.plan_date.toLocaleDateString("ru-RU")}<br />
                                     Просрочка: {p.overdueDays || 0} дн.
                                 </span>
                             </li>
                         ))}
-                        {!data.payments?.length && <li className="text-gray-400 text-center py-2">Оплаты отсутствуют</li>}
+                        {!payments?.length && <li className="text-gray-400 text-center py-2">Оплаты отсутствуют</li>}
                     </ul>
                 </div>
 
                 {!isPaidOff && (
                     <div className="px-6 py-4 flex justify-end gap-2 border-t">
-                        <button onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 transition">Отмена</button>
-                        <button onClick={handleSubmit} className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition">Внести</button>
+                        <button onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 transition" disabled={loading}>Отмена</button>
+                        <button
+                            onClick={handleSubmit}
+                            className={`px-4 py-2 rounded-lg text-white transition ${loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                            disabled={loading}
+                        >
+                            {loading ? 'Отправка...' : 'Внести'}
+                        </button>
                     </div>
                 )}
             </div>

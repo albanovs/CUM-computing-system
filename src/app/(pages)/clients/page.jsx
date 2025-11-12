@@ -1,14 +1,22 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
+import { useSelector, useDispatch } from "react-redux";
+import {
+    fetchClients,
+    deleteClient,
+    updateClient,
+    updateClientPayments
+} from "@/lib/slices/clientsSlice";
 import Modal from "@/components/Modal";
 import CreateModal from "@/components/CreateModal";
 
 const PAGE_SIZE = 10;
 
 export default function ReportsPage() {
-    const [clients, setClients] = useState([]);
-    const [filtered, setFiltered] = useState([]);
+    const dispatch = useDispatch();
+    const { list: clients, loading } = useSelector((state) => state.clients);
+
     const [search, setSearch] = useState("");
     const [filterYear, setFilterYear] = useState("all");
     const [filterMonth, setFilterMonth] = useState("all");
@@ -17,44 +25,47 @@ export default function ReportsPage() {
     const [createModalOpen, setCreateModalOpen] = useState(false);
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
     const [clientToDelete, setClientToDelete] = useState(null);
-    const [loading, setLoading] = useState(true);
     const [currentPage, setCurrentPage] = useState(1);
 
-    const fetchClients = async () => {
-        setLoading(true);
-        try {
-            const res = await fetch("/api/clients");
-            const data = await res.json();
-            setClients(data);
-        } catch (err) {
-            console.error(err);
-            setClients([]);
-        } finally {
-            setLoading(false);
-        }
-    };
+    // Загружаем клиентов один раз при монтировании
+    useEffect(() => {
+        if (clients.length === 0) dispatch(fetchClients());
+    }, [dispatch, clients.length]);
 
-    useEffect(() => { fetchClients(); }, []);
-
+    // Функция статуса оплаты
     const getPaymentStatus = (client) => {
-        if (!client.payments || client.payments.length === 0) return { status: "paid", daysLeft: 0 };
+        if (!client.payments || client.payments.length === 0)
+            return { status: "paid", daysLeft: 0 };
+
         const today = new Date();
-        const nextPayment = client.payments.find(p => (p.plan - (p.paid || 0)) > 0);
+        const nextPayment = client.payments.find(
+            (p) => p.plan - (p.paid || 0) > 0
+        );
         if (!nextPayment) return { status: "paid", daysLeft: 0 };
-        const diffDays = Math.round((new Date(nextPayment.plan_date) - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / (1000 * 60 * 60 * 24));
+
+        const diffDays = Math.round(
+            (new Date(nextPayment.plan_date) -
+                new Date(today.getFullYear(), today.getMonth(), today.getDate())
+            ) / (1000 * 60 * 60 * 24)
+        );
+
         if (diffDays < 0) return { status: "overdue", daysLeft: -diffDays };
         if (diffDays === 0) return { status: "today", daysLeft: 0 };
         if (diffDays === 1) return { status: "tomorrow", daysLeft: 1 };
         return { status: "future", daysLeft: diffDays };
     };
 
-    useEffect(() => {
-        let filteredData = clients.filter(c => {
+    // Фильтрация и сортировка
+    const filtered = useMemo(() => {
+        let filteredData = clients.filter((c) => {
             if (search.trim()) {
                 const s = search.toLowerCase();
-                if (!c.name?.toLowerCase().includes(s) &&
+                if (
+                    !c.name?.toLowerCase().includes(s) &&
                     !c.code?.toLowerCase().includes(s) &&
-                    !c.id?.toString().includes(search)) return false;
+                    !c.id?.toString().includes(search)
+                )
+                    return false;
             }
             if (filterYear !== "all") {
                 const year = new Date(c.data_register).getFullYear();
@@ -80,62 +91,98 @@ export default function ReportsPage() {
             return aStatus.daysLeft - bStatus.daysLeft;
         });
 
-        setFiltered(filteredData);
-        setCurrentPage(1);
+        return filteredData;
     }, [clients, search, filterYear, filterMonth, filterStatus]);
 
+    // Годы и месяцы для фильтров
     const years = useMemo(() => {
-        const setYears = new Set(clients.map(c => c.data_register ? new Date(c.data_register).getFullYear() : null).filter(Boolean));
+        const setYears = new Set(
+            clients
+                .map((c) => c.data_register ? new Date(c.data_register).getFullYear() : null)
+                .filter(Boolean)
+        );
         return Array.from(setYears).sort((a, b) => b - a);
     }, [clients]);
 
     const months = useMemo(() => {
+        if (filterYear === "all") return [];
         const year = Number(filterYear);
-        if (!year || filterYear === "all") return [];
-        const setMonths = new Set(clients.map(c => {
-            if (!c.data_register) return null;
-            const d = new Date(c.data_register);
-            return d.getFullYear() === year ? d.getMonth() + 1 : null;
-        }).filter(Boolean));
+        const setMonths = new Set(
+            clients
+                .map((c) => {
+                    if (!c.data_register) return null;
+                    const d = new Date(c.data_register);
+                    return d.getFullYear() === year ? d.getMonth() + 1 : null;
+                })
+                .filter(Boolean)
+        );
         return Array.from(setMonths).sort((a, b) => a - b);
     }, [clients, filterYear]);
 
+    // Удаление клиента
     const handleDelete = async () => {
         if (!clientToDelete) return;
-        try {
-            const res = await fetch(`/api/clients/${clientToDelete._id}`, { method: "DELETE" });
-            if (!res.ok) throw new Error();
-            setClients(prev => prev.filter(c => c._id !== clientToDelete._id));
-            setDeleteModalOpen(false);
-            setClientToDelete(null);
-        } catch {
-            alert("Ошибка при удалении клиента");
-        }
+        await dispatch(deleteClient(clientToDelete._id));
+        setDeleteModalOpen(false);
+        setClientToDelete(null);
+        setCurrentPage(1);
     };
 
-    const pageCount = Math.ceil(filtered.length / PAGE_SIZE);
-    const paginatedClients = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+    // Добавление нового клиента
+    const handleCreate = (newClient) => {
+        dispatch({ type: "clients/addClient", payload: newClient });
+        setCreateModalOpen(false);
+        setCurrentPage(1);
+    };
 
-    const handlePrev = () => setCurrentPage(p => Math.max(p - 1, 1));
-    const handleNext = () => setCurrentPage(p => Math.min(p + 1, pageCount));
+    // Пагинация
+    const pageCount = Math.ceil(filtered.length / PAGE_SIZE);
+    const paginatedClients = filtered.slice(
+        (currentPage - 1) * PAGE_SIZE,
+        currentPage * PAGE_SIZE
+    );
+
+    const handlePrev = () => setCurrentPage((p) => Math.max(p - 1, 1));
+    const handleNext = () => setCurrentPage((p) => Math.min(p + 1, pageCount));
 
     return (
         <div className="p-2 mb-20 md:p-4 text-xs md:text-sm">
             {/* фильтры */}
             <div className="flex flex-wrap gap-2 mb-3 items-center">
-                <input type="text" placeholder="Поиск по имени, коду, ID" className="border p-1 md:p-2 rounded w-36 md:w-64 text-xs" value={search} onChange={(e) => setSearch(e.target.value)} />
-                <select value={filterYear} onChange={(e) => { setFilterYear(e.target.value); setFilterMonth("all") }} className="border p-1 md:p-2 rounded text-xs">
+                <input
+                    type="text"
+                    placeholder="Поиск по имени, коду, ID"
+                    className="border p-1 md:p-2 rounded w-36 md:w-64 text-xs"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                />
+                <select
+                    value={filterYear}
+                    onChange={(e) => {
+                        setFilterYear(e.target.value);
+                        setFilterMonth("all");
+                    }}
+                    className="border p-1 md:p-2 rounded text-xs"
+                >
                     <option value="all">Все года</option>
-                    {years.map(y => <option key={y} value={y}>{y}</option>)}
+                    {years.map((y) => <option key={y} value={y}>{y}</option>)}
                 </select>
-                <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)} className="border p-1 md:p-2 rounded text-xs">
+                <select
+                    value={filterMonth}
+                    onChange={(e) => setFilterMonth(e.target.value)}
+                    className="border p-1 md:p-2 rounded text-xs"
+                >
                     <option value="all">Все месяцы</option>
-                    {months.map(m => {
+                    {months.map((m) => {
                         const monthName = new Date(0, m - 1).toLocaleString("ru-RU", { month: "long" });
-                        return <option key={m} value={m}>{monthName}</option>
+                        return <option key={m} value={m}>{monthName}</option>;
                     })}
                 </select>
-                <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="border p-1 md:p-2 rounded text-xs">
+                <select
+                    value={filterStatus}
+                    onChange={(e) => setFilterStatus(e.target.value)}
+                    className="border p-1 md:p-2 rounded text-xs"
+                >
                     <option value="all">Все статусы</option>
                     <option value="overdue">Просрочено</option>
                     <option value="today">Сегодня</option>
@@ -143,14 +190,21 @@ export default function ReportsPage() {
                     <option value="future">Будущие</option>
                     <option value="paid">Оплачено</option>
                 </select>
-                <button onClick={() => setCreateModalOpen(true)} className="bg-green-600 text-white px-2 md:px-4 py-1 md:py-2 rounded text-xs md:text-sm hover:bg-green-700 transition">Создать</button>
+                <button
+                    onClick={() => setCreateModalOpen(true)}
+                    className="bg-green-600 text-white px-2 md:px-4 py-1 md:py-2 rounded text-xs md:text-sm hover:bg-green-700 transition"
+                >
+                    Создать
+                </button>
             </div>
 
             {/* таблица */}
             <div className="overflow-auto relative min-h-[300px]">
                 {loading ? (
                     <div className="animate-pulse p-4 space-y-2">
-                        {Array.from({ length: PAGE_SIZE }).map((_, i) => <div key={i} className="h-6 bg-gray-200 rounded w-full"></div>)}
+                        {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+                            <div key={i} className="h-6 bg-gray-200 rounded w-full"></div>
+                        ))}
                     </div>
                 ) : (
                     <table className="w-full table-auto text-xs md:text-sm border-collapse">
@@ -167,17 +221,22 @@ export default function ReportsPage() {
                             </tr>
                         </thead>
                         <tbody>
-                            {paginatedClients.map(item => {
+                            {paginatedClients.map((item) => {
                                 const { status, daysLeft } = getPaymentStatus(item);
                                 let statusText = "", statusClass = "";
-                                if (status === "overdue") { statusText = `Просрочено ${daysLeft} дн.`; statusClass = "text-red-600 font-bold"; }
-                                else if (status === "today") { statusText = "Сегодня"; statusClass = "text-yellow-600 font-semibold"; }
-                                else if (status === "tomorrow") { statusText = "Завтра"; statusClass = "text-yellow-600 font-semibold"; }
-                                else if (status === "future") { statusText = `Через ${daysLeft} дн.`; }
-                                else if (status === "paid") { statusText = "Оплачено"; statusClass = "text-green-600 font-semibold"; }
+                                if (status === "overdue") statusText = `Просрочено ${daysLeft} дн.`, statusClass = "text-red-600 font-bold";
+                                else if (status === "today") statusText = "Сегодня", statusClass = "text-yellow-600 font-semibold";
+                                else if (status === "tomorrow") statusText = "Завтра", statusClass = "text-yellow-600 font-semibold";
+                                else if (status === "future") statusText = `Через ${daysLeft} дн.`;
+                                else if (status === "paid") statusText = "Оплачено", statusClass = "text-green-600 font-semibold";
 
                                 return (
-                                    <tr key={item._id} className={`${status === "paid" ? "bg-green-100" : status === "overdue" ? "bg-red-100" : status === "today" ? "bg-yellow-100" : status === "tomorrow" ? "bg-yellow-50" : ""}`}>
+                                    <tr key={item._id} className={
+                                        status === "paid" ? "bg-green-100" :
+                                            status === "overdue" ? "bg-red-100" :
+                                                status === "today" ? "bg-yellow-100" :
+                                                    status === "tomorrow" ? "bg-yellow-50" : ""
+                                    }>
                                         <td className="p-1 md:p-2 border">{item.code}</td>
                                         <td className="p-1 md:p-2 border">{item.id}</td>
                                         <td className="p-1 md:p-2 border">{item.name}</td>
@@ -186,11 +245,24 @@ export default function ReportsPage() {
                                         <td className="p-1 md:p-2 border">{item.data_register ? new Date(item.data_register).toLocaleDateString("ru-RU") : "-"}</td>
                                         <td className={`p-1 md:p-2 border ${statusClass}`}>{statusText}</td>
                                         <td className="p-1 md:p-2 border">
-                                            <button onClick={() => setSelected(item)} className="px-2 py-1 bg-blue-600 text-white rounded text-[10px] mr-1 md:text-xs hover:bg-blue-700 transition">Подробнее</button>
-                                            <button onClick={() => { setClientToDelete(item); setDeleteModalOpen(true); }} className="px-2 py-1 bg-red-600 text-white rounded text-[10px] md:text-xs hover:bg-red-700 transition">Удалить</button>
+                                            <button
+                                                onClick={() => setSelected(item)}
+                                                className="px-2 py-1 bg-blue-600 text-white rounded text-[10px] mr-1 md:text-xs hover:bg-blue-700 transition"
+                                            >
+                                                Подробнее
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    setClientToDelete(item);
+                                                    setDeleteModalOpen(true);
+                                                }}
+                                                className="px-2 py-1 bg-red-600 text-white rounded text-[10px] md:text-xs hover:bg-red-700 transition"
+                                            >
+                                                Удалить
+                                            </button>
                                         </td>
                                     </tr>
-                                )
+                                );
                             })}
                         </tbody>
                     </table>
@@ -207,14 +279,31 @@ export default function ReportsPage() {
             )}
 
             {/* модалки */}
-            {selected && <Modal data={selected} onClose={() => setSelected(null)} onUpdated={updated => {
-                setClients(prev => prev.map(c => c._id === updated._id ? updated : c));
-                setSelected(updated);
-            }} />}
-            {createModalOpen && <CreateModal onClose={() => setCreateModalOpen(false)} onCreated={newData => {
-                setClients(prev => [...prev, newData]);
-                setCreateModalOpen(false);
-            }} />}
+            {selected && (
+                <Modal
+                    data={selected}
+                    onClose={() => setSelected(null)}
+                    onUpdated={(updated) => {
+                        if (updated.payments) {
+                            dispatch(updateClientPayments({
+                                id: updated._id,
+                                payments: updated.payments,
+                                remainingAmount: updated.remainingAmount
+                            }));
+                        } else {
+                            dispatch(updateClient(updated));
+                        }
+                    }}
+                />
+            )}
+
+            {createModalOpen && (
+                <CreateModal
+                    
+                    onClose={() => setCreateModalOpen(false)}
+                    onCreated={handleCreate}
+                />
+            )}
 
             {deleteModalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50">
@@ -229,5 +318,5 @@ export default function ReportsPage() {
                 </div>
             )}
         </div>
-    )
+    );
 }

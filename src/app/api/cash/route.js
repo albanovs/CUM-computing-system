@@ -3,7 +3,6 @@ import CashSession from "@/lib/models/CashSession";
 
 await connectDB();
 
-// Получить сегодняшнюю сессию
 export async function GET(req) {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
@@ -19,7 +18,6 @@ export async function GET(req) {
     return new Response(JSON.stringify({ session }), { status: 200 });
 }
 
-// Создать/обновить сессию или добавить операцию
 export async function POST(req) {
     const { action, type, amount, comment, paymentType } = await req.json();
 

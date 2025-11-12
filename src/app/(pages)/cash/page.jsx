@@ -145,7 +145,7 @@ export default function CashPage() {
             <div className="mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
                     <span className="font-semibold">Сумма на сегодня: </span>
-                    <span className="text-green-600 font-bold">{totalCash} ₽</span>
+                    <span className="text-green-600 font-bold">{totalCash} сом</span>
                 </div>
 
                 <div className="flex gap-2">

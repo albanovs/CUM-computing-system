@@ -27,26 +27,20 @@ export default function ReportsPage() {
     const [clientToDelete, setClientToDelete] = useState(null);
     const [currentPage, setCurrentPage] = useState(1);
 
-    // Загружаем клиентов один раз при монтировании
     useEffect(() => {
         if (clients.length === 0) dispatch(fetchClients());
     }, [dispatch, clients.length]);
 
-    // Функция статуса оплаты
     const getPaymentStatus = (client) => {
-        if (!client.payments || client.payments.length === 0)
-            return { status: "paid", daysLeft: 0 };
+        if (!client.payments || client.payments.length === 0) return { status: "paid", daysLeft: 0 };
 
         const today = new Date();
-        const nextPayment = client.payments.find(
-            (p) => p.plan - (p.paid || 0) > 0
-        );
+        const nextPayment = client.payments.find((p) => p.plan - (p.paid || 0) > 0);
         if (!nextPayment) return { status: "paid", daysLeft: 0 };
 
         const diffDays = Math.round(
-            (new Date(nextPayment.plan_date) -
-                new Date(today.getFullYear(), today.getMonth(), today.getDate())
-            ) / (1000 * 60 * 60 * 24)
+            (new Date(nextPayment.plan_date) - new Date(today.getFullYear(), today.getMonth(), today.getDate())) /
+            (1000 * 60 * 60 * 24)
         );
 
         if (diffDays < 0) return { status: "overdue", daysLeft: -diffDays };
@@ -55,17 +49,11 @@ export default function ReportsPage() {
         return { status: "future", daysLeft: diffDays };
     };
 
-    // Фильтрация и сортировка
     const filtered = useMemo(() => {
         let filteredData = clients.filter((c) => {
             if (search.trim()) {
                 const s = search.toLowerCase();
-                if (
-                    !c.name?.toLowerCase().includes(s) &&
-                    !c.code?.toLowerCase().includes(s) &&
-                    !c.id?.toString().includes(search)
-                )
-                    return false;
+                if (!c.name?.toLowerCase().includes(s) && !c.code?.toLowerCase().includes(s) && !c.id?.toString().includes(search)) return false;
             }
             if (filterYear !== "all") {
                 const year = new Date(c.data_register).getFullYear();
@@ -86,21 +74,15 @@ export default function ReportsPage() {
             const priority = { overdue: 1, today: 2, tomorrow: 3, future: 4, paid: 5 };
             const aStatus = getPaymentStatus(a);
             const bStatus = getPaymentStatus(b);
-            if (priority[aStatus.status] !== priority[bStatus.status])
-                return priority[aStatus.status] - priority[bStatus.status];
+            if (priority[aStatus.status] !== priority[bStatus.status]) return priority[aStatus.status] - priority[bStatus.status];
             return aStatus.daysLeft - bStatus.daysLeft;
         });
 
         return filteredData;
     }, [clients, search, filterYear, filterMonth, filterStatus]);
 
-    // Годы и месяцы для фильтров
     const years = useMemo(() => {
-        const setYears = new Set(
-            clients
-                .map((c) => c.data_register ? new Date(c.data_register).getFullYear() : null)
-                .filter(Boolean)
-        );
+        const setYears = new Set(clients.map((c) => c.data_register ? new Date(c.data_register).getFullYear() : null).filter(Boolean));
         return Array.from(setYears).sort((a, b) => b - a);
     }, [clients]);
 
@@ -108,18 +90,15 @@ export default function ReportsPage() {
         if (filterYear === "all") return [];
         const year = Number(filterYear);
         const setMonths = new Set(
-            clients
-                .map((c) => {
-                    if (!c.data_register) return null;
-                    const d = new Date(c.data_register);
-                    return d.getFullYear() === year ? d.getMonth() + 1 : null;
-                })
-                .filter(Boolean)
+            clients.map((c) => {
+                if (!c.data_register) return null;
+                const d = new Date(c.data_register);
+                return d.getFullYear() === year ? d.getMonth() + 1 : null;
+            }).filter(Boolean)
         );
         return Array.from(setMonths).sort((a, b) => a - b);
     }, [clients, filterYear]);
 
-    // Удаление клиента
     const handleDelete = async () => {
         if (!clientToDelete) return;
         await dispatch(deleteClient(clientToDelete._id));
@@ -128,41 +107,85 @@ export default function ReportsPage() {
         setCurrentPage(1);
     };
 
-    // Добавление нового клиента
     const handleCreate = (newClient) => {
         dispatch({ type: "clients/addClient", payload: newClient });
         setCreateModalOpen(false);
         setCurrentPage(1);
     };
 
-    // Пагинация
     const pageCount = Math.ceil(filtered.length / PAGE_SIZE);
-    const paginatedClients = filtered.slice(
-        (currentPage - 1) * PAGE_SIZE,
-        currentPage * PAGE_SIZE
-    );
-
+    const paginatedClients = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
     const handlePrev = () => setCurrentPage((p) => Math.max(p - 1, 1));
     const handleNext = () => setCurrentPage((p) => Math.min(p + 1, pageCount));
 
+    const stats = useMemo(() => {
+        let todayCount = 0, todaySum = 0;
+        let overdueCount = 0, overdueSum = 0, overdueDaysTotal = 0;
+        let paidCount = 0, paidSum = 0;
+
+        clients.forEach(c => {
+            const { status, daysLeft } = getPaymentStatus(c);
+            const remaining = c.remainingAmount || 0;
+
+            if (status === "today") {
+                todayCount++;
+                todaySum += remaining;
+            } else if (status === "overdue") {
+                overdueCount++;
+                overdueSum += remaining;
+                overdueDaysTotal += daysLeft;
+            } else if (status === "paid") {
+                paidCount++;
+                paidSum += remaining;
+            }
+        });
+
+        const avgOverdueDays = overdueCount ? Math.round(overdueDaysTotal / overdueCount) : 0;
+
+        return {
+            today: { count: todayCount, sum: todaySum },
+            overdue: { count: overdueCount, sum: overdueSum, avgDays: avgOverdueDays },
+            paid: { count: paidCount, sum: paidSum },
+            total: clients.length
+        };
+    }, [clients]);
+
     return (
-        <div className="p-2 mb-20 md:p-4 text-xs md:text-sm">
-            {/* фильтры */}
+        <div className="p-4 md:p-6 text-sm">
+            <div className="mb-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <div className="bg-gradient-to-r from-blue-400 to-blue-200 text-white p-4 rounded-lg shadow transition-transform">
+                    <div className="text-xs uppercase font-semibold">Сегодня к оплате</div>
+                    <div className="text-2xl font-bold">{stats.today.count} чел.</div>
+                    <div className="text-sm mt-1">Сумма: {stats.today.sum} сом</div>
+                </div>
+                <div className="bg-gradient-to-r from-red-400 to-red-200 text-white p-4 rounded-lg shadow transition-transform">
+                    <div className="text-xs uppercase font-semibold">Просрочено</div>
+                    <div className="text-2xl font-bold">{stats.overdue.count} чел.</div>
+                    <div className="text-sm mt-1">Сумма: {stats.overdue.sum} сом</div>
+                </div>
+                <div className="bg-gradient-to-r from-green-400 to-green-200 text-white p-4 rounded-lg shadow transition-transform">
+                    <div className="text-xs uppercase font-semibold">Оплачено</div>
+                    <div className="text-2xl font-bold">{stats.paid.count} чел.</div>
+                    <div className="text-sm mt-1">Сумма: {stats.paid.sum} сом</div>
+                </div>
+                <div className="bg-gradient-to-r from-gray-400 to-gray-200 text-white p-4 rounded-lg shadow transition-transform">
+                    <div className="text-xs uppercase font-semibold">Всего клиентов</div>
+                    <div className="text-2xl font-bold">{stats.total}</div>
+                </div>
+            </div>
+
             <div className="flex flex-wrap gap-2 mb-3 items-center">
                 <input
                     type="text"
                     placeholder="Поиск по имени, коду, ID"
-                    className="border p-1 md:p-2 rounded w-36 md:w-64 text-xs"
+                    className="border p-2 rounded w-40 md:w-64 focus:ring-2 focus:ring-blue-400 transition"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                 />
                 <select
                     value={filterYear}
-                    onChange={(e) => {
-                        setFilterYear(e.target.value);
-                        setFilterMonth("all");
-                    }}
-                    className="border p-1 md:p-2 rounded text-xs"
+                    onChange={(e) => { setFilterYear(e.target.value); setFilterMonth("all"); }}
+                    className="border p-2 rounded focus:ring-2 focus:ring-blue-400 transition"
                 >
                     <option value="all">Все года</option>
                     {years.map((y) => <option key={y} value={y}>{y}</option>)}
@@ -170,7 +193,7 @@ export default function ReportsPage() {
                 <select
                     value={filterMonth}
                     onChange={(e) => setFilterMonth(e.target.value)}
-                    className="border p-1 md:p-2 rounded text-xs"
+                    className="border p-2 rounded focus:ring-2 focus:ring-blue-400 transition"
                 >
                     <option value="all">Все месяцы</option>
                     {months.map((m) => {
@@ -181,7 +204,7 @@ export default function ReportsPage() {
                 <select
                     value={filterStatus}
                     onChange={(e) => setFilterStatus(e.target.value)}
-                    className="border p-1 md:p-2 rounded text-xs"
+                    className="border p-2 rounded focus:ring-2 focus:ring-blue-400 transition"
                 >
                     <option value="all">Все статусы</option>
                     <option value="overdue">Просрочено</option>
@@ -192,13 +215,12 @@ export default function ReportsPage() {
                 </select>
                 <button
                     onClick={() => setCreateModalOpen(true)}
-                    className="bg-green-600 text-white px-2 md:px-4 py-1 md:py-2 rounded text-xs md:text-sm hover:bg-green-700 transition"
+                    className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition"
                 >
                     Создать
                 </button>
             </div>
 
-            {/* таблица */}
             <div className="overflow-auto relative min-h-[300px]">
                 {loading ? (
                     <div className="animate-pulse p-4 space-y-2">
@@ -252,10 +274,7 @@ export default function ReportsPage() {
                                                 Подробнее
                                             </button>
                                             <button
-                                                onClick={() => {
-                                                    setClientToDelete(item);
-                                                    setDeleteModalOpen(true);
-                                                }}
+                                                onClick={() => { setClientToDelete(item); setDeleteModalOpen(true); }}
                                                 className="px-2 py-1 bg-red-600 text-white rounded text-[10px] md:text-xs hover:bg-red-700 transition"
                                             >
                                                 Удалить
@@ -269,7 +288,6 @@ export default function ReportsPage() {
                 )}
             </div>
 
-            {/* пагинация */}
             {!loading && pageCount > 1 && (
                 <div className="flex justify-center gap-2 mt-2">
                     <button onClick={handlePrev} disabled={currentPage === 1} className="px-3 py-1 border rounded disabled:opacity-50">Назад</button>
@@ -278,7 +296,6 @@ export default function ReportsPage() {
                 </div>
             )}
 
-            {/* модалки */}
             {selected && (
                 <Modal
                     data={selected}
@@ -296,15 +313,12 @@ export default function ReportsPage() {
                     }}
                 />
             )}
-
             {createModalOpen && (
                 <CreateModal
-                    
                     onClose={() => setCreateModalOpen(false)}
                     onCreated={handleCreate}
                 />
             )}
-
             {deleteModalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50">
                     <div className="bg-white p-4 rounded shadow max-w-sm w-full">

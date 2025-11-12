@@ -26,7 +26,7 @@ export default function RootLayout({ children }) {
       >
         <ReduxProvider>
           <Header />
-          <div className="lg:mt-30 mt-20 max-w-[1440px] mx-auto">{children}</div>
+          <div className="lg:mt-30 mb-20 mt-20 max-w-[1440px] mx-auto">{children}</div>
         </ReduxProvider>
       </body>
     </html>

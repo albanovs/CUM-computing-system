@@ -6,18 +6,20 @@ const paymentSchema = new mongoose.Schema({
   paid: { type: Number, default: 0 },
   comment: String,
   overdueDays: { type: Number, default: 0 },
+  currency: { type: String, enum: ['СОМ', 'USD'], default: 'СОМ' },
 });
 
 const installmentSchema = new mongoose.Schema({
   data_register: { type: Date, default: Date.now },
-  id: String,
   code: String,
   name: String,
   phoneNumber: String,
   address: String,
   comment: String,
-  phoneModel: String,
-  phonePrice: Number,
+  product: [],
+  dopNumber: [],
+  currency: { type: String, enum: ['СОМ', 'USD'], default: 'СОМ' },
+  employees: { name: String, price: Number, id: String },
   paymentDay: { type: Number, min: 1, max: 31 },
   installmentTerm: Number,
   firstPaymentAmount: { type: Number, default: 0 },

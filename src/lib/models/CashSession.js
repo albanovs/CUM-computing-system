@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 
 const OperationSchema = new mongoose.Schema({
     amount: Number,
+    currency: { type: String, enum: ["USD", "СОМ"], default: "СОМ" },
     comment: String,
     paymentType: { type: String, enum: ["cash", "non-cash"], default: "cash" },
     createdAt: { type: Date, default: Date.now },

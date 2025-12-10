@@ -14,9 +14,11 @@ export default function CashPage() {
     const [newOpType, setNewOpType] = useState("income");
     const [newOpComment, setNewOpComment] = useState("");
     const [newOpPayment, setNewOpPayment] = useState("cash");
+    const [newOpCurrency, setNewOpCurrency] = useState("СОМ");
 
     const [message, setMessage] = useState(null);
 
+    // --- загрузка операций ---
     const fetchCash = async () => {
         setLoading(true);
         try {
@@ -26,9 +28,9 @@ export default function CashPage() {
 
             if (data.session) {
                 const ops = [
-                    ...data.session.income.map(op => ({ ...op, type: "income" })),
-                    ...data.session.expense.map(op => ({ ...op, type: "expense" }))
-                ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                    ...data.session.income.map(op => ({ ...op, type: "income", createdAt: new Date(op.createdAt) })),
+                    ...data.session.expense.map(op => ({ ...op, type: "expense", createdAt: new Date(op.createdAt) }))
+                ].sort((a, b) => b.createdAt - a.createdAt); // новые сверху
                 setOperations(ops);
             } else {
                 setOperations([]);
@@ -103,18 +105,22 @@ export default function CashPage() {
                     amount: Number(newOpAmount),
                     comment: newOpComment,
                     paymentType: newOpPayment,
+                    currency: newOpCurrency
                 }),
             });
             if (!res.ok) throw new Error();
             const data = await res.json();
 
-            const opWithType = { ...data.operation, type: newOpType };
-            setOperations(prev => [opWithType, ...prev]);
+            const opWithType = { ...data.operation, type: newOpType, createdAt: new Date(data.operation.createdAt) };
+
+            // добавляем и сразу сортируем
+            setOperations(prev => [opWithType, ...prev].sort((a, b) => b.createdAt - a.createdAt));
 
             setNewOpAmount("");
             setNewOpComment("");
             setNewOpType("income");
             setNewOpPayment("cash");
+            setNewOpCurrency("СОМ");
             setMessage({ type: "success", text: "Операция добавлена" });
         } catch {
             setMessage({ type: "error", text: "Ошибка при добавлении операции" });
@@ -123,9 +129,15 @@ export default function CashPage() {
         }
     };
 
-    const totalCash = operations.reduce(
-        (acc, op) => op.type === "income" ? acc + op.amount : acc - op.amount, 0
-    );
+    // --- подсчёт по валюте ---
+    const totalByCurrency = (currency) => {
+        return operations.reduce((acc, op) => {
+            if ((op.currency || "").toUpperCase() === currency.toUpperCase()) {
+                return op.type === "income" ? acc + op.amount : acc - op.amount;
+            }
+            return acc;
+        }, 0);
+    };
 
     const pageCount = Math.ceil(operations.length / PAGE_SIZE);
     const paginatedOps = operations.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
@@ -144,49 +156,17 @@ export default function CashPage() {
 
             <div className="mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
-                    <span className="font-semibold">Сумма на сегодня: </span>
-                    <span className="text-green-600 font-bold">{totalCash} сом</span>
+                    <span className="font-semibold">Сумма (СОМ): </span>
+                    <span className="text-green-600 font-bold">{totalByCurrency("СОМ")}</span>
+                    <span className="font-semibold ml-4">Сумма (USD): </span>
+                    <span className="text-green-600 font-bold">{totalByCurrency("USD")}</span>
                 </div>
 
                 <div className="flex gap-2">
                     {!cashSession?.status || cashSession.status !== "open" ? (
-                        <button
-                            onClick={handleOpenCash}
-                            disabled={loading}
-                            className={`bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition flex items-center justify-center gap-2 ${loading ? "opacity-50 cursor-not-allowed" : ""
-                                }`}
-                        >
-                            {loading ? (
-                                <>
-                                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z"></path>
-                                    </svg>
-                                    Открыть кассу
-                                </>
-                            ) : (
-                                "Открыть кассу"
-                            )}
-                        </button>
+                        <button onClick={handleOpenCash} disabled={loading} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Открыть кассу</button>
                     ) : (
-                        <button
-                            onClick={handleCloseCash}
-                            disabled={loading}
-                            className={`bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 transition flex items-center justify-center gap-2 ${loading ? "opacity-50 cursor-not-allowed" : ""
-                                }`}
-                        >
-                            {loading ? (
-                                <>
-                                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z"></path>
-                                    </svg>
-                                    Закрыть кассу
-                                </>
-                            ) : (
-                                "Закрыть кассу"
-                            )}
-                        </button>
+                        <button onClick={handleCloseCash} disabled={loading} className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">Закрыть кассу</button>
                     )}
                 </div>
             </div>
@@ -202,10 +182,12 @@ export default function CashPage() {
                         <option value="cash">Нал</option>
                         <option value="non-cash">Безнал</option>
                     </select>
+                    <select value={newOpCurrency} onChange={e => setNewOpCurrency(e.target.value)} className="border p-2 rounded w-full md:w-32">
+                        <option value="СОМ">СОМ</option>
+                        <option value="USD">USD</option>
+                    </select>
                     <input type="text" placeholder="Комментарий" value={newOpComment} onChange={e => setNewOpComment(e.target.value)} className="border p-2 rounded w-full md:w-64" />
-                    <button onClick={handleAddOperation} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">
-                        Добавить
-                    </button>
+                    <button onClick={handleAddOperation} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Добавить</button>
                 </div>
             )}
 
@@ -217,6 +199,7 @@ export default function CashPage() {
                         <thead>
                             <tr className="bg-gray-200 sticky top-0 z-10">
                                 <th className="p-2 border">Сумма</th>
+                                <th className="p-2 border">Валюта</th>
                                 <th className="p-2 border">Тип</th>
                                 <th className="p-2 border">Оплата</th>
                                 <th className="p-2 border">Комментарий</th>
@@ -226,11 +209,12 @@ export default function CashPage() {
                         <tbody>
                             {paginatedOps.map((op, idx) => (
                                 <tr key={idx} className="hover:bg-gray-50">
-                                    <td className={`p-2 border ${op.type === "income" ? "text-green-600" : "text-red-600"}`}>{op.amount} ₽</td>
+                                    <td className={`p-2 border ${op.type === "income" ? "text-green-600" : "text-red-600"}`}>{op.amount}</td>
+                                    <td className="p-2 border">{op.currency}</td>
                                     <td className="p-2 border">{op.type === "income" ? "Приход" : "Расход"}</td>
                                     <td className="p-2 border">{op.paymentType === "cash" ? "Нал" : "Безнал"}</td>
                                     <td className="p-2 border">{op.comment || "-"}</td>
-                                    <td className="p-2 border">{new Date(op.createdAt).toLocaleTimeString()}</td>
+                                    <td className="p-2 border">{op.createdAt.toLocaleString()}</td>
                                 </tr>
                             ))}
                         </tbody>

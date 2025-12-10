@@ -2,8 +2,8 @@
 
 import React, { useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { fetchClients } from "@/lib/slices/clientsSlice";
-import { fetchCashSession } from "@/lib/slices/cashSlice";
+import { fetchClients } from "../../../lib/slices/clientsSlice";
+import { fetchCashSession } from "../../../lib/slices/cashSlice";
 
 export default function Dashboard() {
     const dispatch = useDispatch();
@@ -42,44 +42,73 @@ export default function Dashboard() {
         )
     );
 
-    const totalRemaining = clients.reduce((s, i) => s + Number(i.remainingAmount || 0), 0);
+    // --- корректный подсчёт остатка ---
+    const totalRemaining = clients.reduce(
+        (acc, client) => {
+            const currency = (client.currency || "СОМ").toUpperCase();
+            acc[currency] = (acc[currency] || 0) + Number(client.remainingAmount || 0);
+            return acc;
+        },
+        { "СОМ": 0, "USD": 0 }
+    );
 
     const monthStats = React.useMemo(() => {
         const now = new Date();
         const start = new Date(now.getFullYear(), now.getMonth(), 1);
         const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
-        let cashIncome = 0;
-        let cashExpense = 0;
+        let cashIncome = { "СОМ": 0, "USD": 0 };
+        let cashExpense = { "СОМ": 0, "USD": 0 };
         if (cashSession) {
             (cashSession.income || []).forEach((i) => {
                 const d = new Date(i.createdAt || i.date);
-                if (d >= start && d <= end) cashIncome += Number(i.amount || 0);
+                if (d >= start && d <= end) {
+                    const c = (i.currency || "СОМ").toUpperCase();
+                    cashIncome[c] = (cashIncome[c] || 0) + Number(i.amount || 0);
+                }
             });
             (cashSession.expense || []).forEach((e) => {
                 const d = new Date(e.createdAt || e.date);
-                if (d >= start && d <= end) cashExpense += Number(e.amount || 0);
+                if (d >= start && d <= end) {
+                    const c = (e.currency || "СОМ").toUpperCase();
+                    cashExpense[c] = (cashExpense[c] || 0) + Number(e.amount || 0);
+                }
             });
         }
 
-        let installmentIncome = 0;
+        let installmentIncome = { "СОМ": 0, "USD": 0 };
         clients.forEach((inst) => {
             (inst.payments || []).forEach((p) => {
                 if (!p.plan_date) return;
                 const d = new Date(p.plan_date);
-                if (d >= start && d <= end) installmentIncome += Number(p.paid || 0);
+                if (d >= start && d <= end) {
+                    const c = (p.currency || "СОМ").toUpperCase();
+                    installmentIncome[c] = (installmentIncome[c] || 0) + Number(p.paid || 0);
+                }
             });
         });
 
-        const totalIncome = cashIncome + installmentIncome;
-        const net = totalIncome - cashExpense;
+        const totalIncome = {
+            "СОМ": cashIncome["СОМ"] + installmentIncome["СОМ"],
+            "USD": cashIncome["USD"] + installmentIncome["USD"]
+        };
+        const net = {
+            "СОМ": totalIncome["СОМ"] - cashExpense["СОМ"],
+            "USD": totalIncome["USD"] - cashExpense["USD"]
+        };
 
-        return { cashIncome, cashExpense, installmentIncome, totalIncome, net };
+        return {
+            cashIncome,
+            cashExpense,
+            installmentIncome,
+            totalIncome,
+            net
+        };
     }, [cashSession, clients]);
 
     if (loading) {
         return (
-            <div className="w-full min-h-screen flex items-center justify-center bg-slate-50">
+            <div className="w-full min-h-screen flex items-center justify-center bg-gray-50">
                 <div className="flex flex-col items-center animate-fade-in">
                     <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
                     <div className="mt-4 text-gray-600 text-lg font-medium">Загрузка данных...</div>
@@ -91,7 +120,7 @@ export default function Dashboard() {
     if (error) {
         return (
             <div className="w-full min-h-screen p-6 flex items-center justify-center">
-                <div className="max-w-4xl bg-white p-6 rounded-lg shadow text-red-600 font-medium">
+                <div className="max-w-4xl bg-white p-6 rounded-2xl shadow text-red-600 font-medium">
                     Ошибка: {error}
                 </div>
             </div>
@@ -99,50 +128,56 @@ export default function Dashboard() {
     }
 
     return (
-        <div className="mb-20 w-full min-h-screen rounded-2xl bg-slate-50 p-4 md:p-8">
-            <div className="max-w-7xl mx-auto">
-                <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-                    <h1 className="text-3xl font-bold text-gray-800">Панель управления</h1>
-                    <p className="text-sm text-gray-500">
+        <div className="min-h-screen p-4 md:p-8 bg-gray-50">
+            <div className="max-w-7xl mx-auto space-y-6">
+                <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                    <h1 className="text-3xl font-extrabold text-gray-900">Панель управления</h1>
+                    <p className="text-gray-500 text-sm">
                         Обзор клиентов, платежей и кассы — актуально на {new Date().toLocaleDateString()}
                     </p>
                 </header>
 
-                <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                    <div className="bg-white p-5 rounded-xl shadow hover:shadow-lg transition duration-300 flex flex-col">
-                        <div className="text-sm text-gray-400">Клиентов всего</div>
-                        <div className="mt-2 text-3xl font-bold text-gray-800">{clients.length}</div>
-                        <div className="text-xs text-gray-500 mt-2">
-                            Остаток по рассрочке: <span className="font-medium">{totalRemaining} сом</span>
+                <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="bg-white p-5 rounded-2xl shadow hover:shadow-xl transition flex flex-col">
+                        <span className="text-sm text-gray-400">Клиентов всего</span>
+                        <span className="mt-2 text-3xl font-bold text-gray-900">{clients.length}</span>
+                        <span className="text-xs text-gray-500 mt-1">
+                            Остаток: <span className="font-medium">{totalRemaining["СОМ"]} сом</span>, <span className="font-medium">{totalRemaining["USD"]} USD</span>
+                        </span>
+                    </div>
+
+                    <div className="bg-white p-5 rounded-2xl shadow hover:shadow-xl transition flex flex-col">
+                        <span className="text-sm text-gray-400">Просроченные</span>
+                        <span className="mt-2 text-3xl font-bold text-red-600">{overdueClients.length}</span>
+                        <span className="text-xs text-gray-500 mt-1">Клиентов с просрочкой</span>
+                    </div>
+
+                    <div className="bg-white p-5 rounded-2xl shadow hover:shadow-xl transition flex flex-col">
+                        <span className="text-sm text-gray-400">Оплаты сегодня</span>
+                        <span className="mt-2 text-3xl font-bold text-amber-600">{dueTodayClients.length}</span>
+                        <span className="text-xs text-gray-500 mt-1">Клиентов с платежом сегодня</span>
+                    </div>
+
+                    <div className="bg-white p-5 rounded-2xl shadow hover:shadow-xl transition flex flex-col">
+                        <span className="text-sm text-gray-400">Доход (текущий месяц)</span>
+                        <div className="mt-2 space-y-1">
+                            <span className="text-2xl font-bold text-green-600">{monthStats.totalIncome["СОМ"]} сом</span>
+                            <span className="text-2xl font-bold text-green-600">{monthStats.totalIncome["USD"]} USD</span>
                         </div>
-                    </div>
-
-                    <div className="bg-white p-5 rounded-xl shadow hover:shadow-lg transition duration-300 flex flex-col">
-                        <div className="text-sm text-gray-400">Просроченные</div>
-                        <div className="mt-2 text-3xl font-bold text-red-600">{overdueClients.length}</div>
-                        <div className="text-xs text-gray-500 mt-2">Клиентов с просрочкой</div>
-                    </div>
-
-                    <div className="bg-white p-5 rounded-xl shadow hover:shadow-lg transition duration-300 flex flex-col">
-                        <div className="text-sm text-gray-400">Оплаты сегодня</div>
-                        <div className="mt-2 text-3xl font-bold text-amber-600">{dueTodayClients.length}</div>
-                        <div className="text-xs text-gray-500 mt-2">Клиентов, у которых платеж сегодня</div>
-                    </div>
-
-                    <div className="bg-white p-5 rounded-xl shadow hover:shadow-lg transition duration-300 flex flex-col">
-                        <div className="text-sm text-gray-400">Доход (тек. мес.)</div>
-                        <div className="mt-2 text-3xl font-bold text-green-600">{monthStats.totalIncome} сом</div>
-                        <div className="text-xs text-gray-500 mt-2">Расходы: {monthStats.cashExpense} сом</div>
+                        <span className="text-xs text-gray-500 mt-1">
+                            Расходы: {monthStats.cashExpense["СОМ"]} сом, {monthStats.cashExpense["USD"]} USD
+                        </span>
                     </div>
                 </section>
 
-                <section className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-                    <div className="lg:col-span-2 bg-white p-5 rounded-xl shadow hover:shadow-lg transition duration-300">
+                <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Последние платежи клиентов */}
+                    <div className="lg:col-span-2 bg-white p-5 rounded-2xl shadow hover:shadow-xl transition">
                         <h2 className="text-xl font-semibold mb-4">Платежи по клиентам (последние)</h2>
                         <div className="overflow-x-auto">
-                            <table className="w-full text-left table-auto border-collapse">
-                                <thead>
-                                    <tr className="text-sm text-gray-500 border-b">
+                            <table className="w-full table-auto border-collapse text-sm text-gray-700">
+                                <thead className="bg-gray-100 text-gray-500">
+                                    <tr>
                                         <th className="p-2">ID</th>
                                         <th className="p-2">Имя</th>
                                         <th className="p-2">Телефон</th>
@@ -165,12 +200,16 @@ export default function Dashboard() {
 
                                         return (
                                             <tr key={c._id} className="border-b hover:bg-gray-50 transition">
-                                                <td className="p-2 text-sm">{c.id || c._id.substring(0, 6)}</td>
-                                                <td className="p-2 text-sm">{c.name}</td>
-                                                <td className="p-2 text-sm">{c.phoneNumber}</td>
-                                                <td className="p-2 text-sm">{c.remainingAmount || 0} сом</td>
-                                                <td className="p-2 text-sm">{nextDate ? nextDate.toLocaleDateString() : "—"}</td>
-                                                <td className="p-2 text-sm">
+                                                <td className="p-2">{c.id || c._id.substring(0, 6)}</td>
+                                                <td className="p-2">{c.name}</td>
+                                                <td className="p-2">{c.phoneNumber}</td>
+                                                <td className="p-2">
+                                                    {c.currency?.toUpperCase() === "USD"
+                                                        ? `${c.remainingAmount} USD`
+                                                        : `${c.remainingAmount} сом`}
+                                                </td>
+                                                <td className="p-2">{nextDate ? nextDate.toLocaleDateString() : "—"}</td>
+                                                <td className="p-2">
                                                     <span
                                                         className={`px-2 py-1 rounded-full text-xs font-medium ${status === "Просрочено"
                                                             ? "bg-red-100 text-red-700"
@@ -190,32 +229,51 @@ export default function Dashboard() {
                         </div>
                     </div>
 
-                    <div className="bg-white p-5 rounded-xl shadow hover:shadow-lg transition duration-300">
+                    {/* Касса */}
+                    <div className="bg-white p-5 rounded-2xl shadow hover:shadow-xl transition">
                         <h2 className="text-xl font-semibold mb-4">Касса (сейчас)</h2>
                         <div className="text-sm text-gray-600 mb-3">
                             Статус: <span className="font-medium">{cashSession?.status || "—"}</span>
                         </div>
-                        <div className="flex justify-between mb-3">
+                        <div className="grid grid-cols-2 gap-4 mb-4">
                             <div>
-                                <div className="text-xs text-gray-500">Доходы</div>
+                                <div className="text-xs text-gray-500">Доходы (сом)</div>
                                 <div className="text-2xl font-bold text-green-600">
-                                    {(cashSession?.income || []).reduce((s, i) => s + Number(i.amount || 0), 0)} сом
+                                    {(cashSession?.income || [])
+                                        .filter(i => (i.currency || "СОМ").toUpperCase() === "СОМ")
+                                        .reduce((s, i) => s + Number(i.amount || 0), 0)}
                                 </div>
                             </div>
                             <div>
-                                <div className="text-xs text-gray-500">Расходы</div>
+                                <div className="text-xs text-gray-500">Доходы (USD)</div>
+                                <div className="text-2xl font-bold text-green-600">
+                                    {(cashSession?.income || [])
+                                        .filter(i => (i.currency || "СОМ").toUpperCase() === "USD")
+                                        .reduce((s, i) => s + Number(i.amount || 0), 0)}
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-gray-500">Расходы (сом)</div>
                                 <div className="text-2xl font-bold text-red-600">
-                                    {(cashSession?.expense || []).reduce((s, i) => s + Number(i.amount || 0), 0)} сом
+                                    {(cashSession?.expense || [])
+                                        .filter(i => (i.currency || "СОМ").toUpperCase() === "СОМ")
+                                        .reduce((s, i) => s + Number(i.amount || 0), 0)}
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-gray-500">Расходы (USD)</div>
+                                <div className="text-2xl font-bold text-red-600">
+                                    {(cashSession?.expense || [])
+                                        .filter(i => (i.currency || "СОМ").toUpperCase() === "USD")
+                                        .reduce((s, i) => s + Number(i.amount || 0), 0)}
                                 </div>
                             </div>
                         </div>
                         <div>
                             <h3 className="text-sm font-medium mb-2">Последние операции</h3>
                             <div className="space-y-2 max-h-80 overflow-auto">
-                                {((cashSession?.income || [])
-                                    .slice(-5)
-                                    .map((i) => ({ ...i, type: "income" }))
-                                    .concat((cashSession?.expense || []).slice(-5).map((i) => ({ ...i, type: "expense" }))))
+                                {((cashSession?.income || []).map(i => ({ ...i, type: "income" }))
+                                    .concat((cashSession?.expense || []).map(i => ({ ...i, type: "expense" }))))
                                     .sort((a, b) => new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date))
                                     .slice(0, 8)
                                     .map((op, idx) => (
@@ -226,10 +284,8 @@ export default function Dashboard() {
                                                     {new Date(op.createdAt || op.date).toLocaleString()}
                                                 </div>
                                             </div>
-                                            <div
-                                                className={`font-semibold ${op.type === "income" ? "text-green-600" : "text-red-600"}`}
-                                            >
-                                                {op.amount} сом
+                                            <div className={`font-semibold ${op.type === "income" ? "text-green-600" : "text-red-600"}`}>
+                                                {op.amount} {(op.currency || "СОМ").toUpperCase()}
                                             </div>
                                         </div>
                                     ))}
@@ -237,47 +293,6 @@ export default function Dashboard() {
                         </div>
                     </div>
                 </section>
-
-                <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12">
-                    <div className="bg-white p-5 rounded-xl shadow hover:shadow-lg transition duration-300">
-                        <h3 className="font-semibold text-lg mb-3">Клиенты с просрочками</h3>
-                        <div className="space-y-3 max-h-80 overflow-auto">
-                            {overdueClients.length === 0 && (
-                                <div className="text-sm text-gray-400">Нет просроченных</div>
-                            )}
-                            {overdueClients.map((c) => (
-                                <div key={c._id} className="flex items-start justify-between bg-gray-50 p-3 rounded-lg shadow-sm">
-                                    <div>
-                                        <div className="font-medium">{c.name} <span className="text-xs text-gray-400">{c.phoneNumber}</span></div>
-                                        <div className="text-xs text-gray-500">Остаток: {c.remainingAmount || 0} сом</div>
-                                        <div className="text-xs text-red-500">Просрочено: {(c.payments || []).filter(isOverdue).length} платежей</div>
-                                    </div>
-                                    {/* <div className="text-sm text-gray-500">{c.remainingAmount || 0}</div> */}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="bg-white p-5 rounded-xl shadow hover:shadow-lg transition duration-300">
-                        <h3 className="font-semibold text-lg mb-3">Платежи сегодня</h3>
-                        <div className="space-y-3 max-h-80 overflow-auto">
-                            {dueTodayClients.length === 0 && <div className="text-sm text-gray-400">Сегодня платежей нет</div>}
-                            {dueTodayClients.map((c) => (
-                                <div key={c._id} className="flex items-center justify-between bg-gray-50 p-3 rounded-lg shadow-sm">
-                                    <div>
-                                        <div className="font-medium">{c.name}</div>
-                                        <div className="text-xs text-gray-500">Тел: {c.phoneNumber}</div>
-                                    </div>
-                                    <div className="text-sm text-gray-700">{c.remainingAmount || 0} сом</div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </section>
-
-                <footer className="text-center text-xs text-gray-400 mb-8">
-                    Разработано <a href="https://t.me/+996500991414">@albvnovs</a>
-                </footer>
             </div>
         </div>
     );

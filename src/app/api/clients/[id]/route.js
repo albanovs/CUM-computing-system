@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { connectDB } from "@/lib/db";
-import { InstallmentModel } from "@/lib/models/all_data";
+import { connectDB } from "../../../../lib/db";
+import { InstallmentModel } from "../../../../lib/models/all_data";
 
 const TELEGRAM_BOT_TOKEN = '8396661511:AAHXdQYMm_NPAN1hbFw2Owmn6kgsJ6_j2T0';
 const TELEGRAM_CHAT_ID = '-4938428460';

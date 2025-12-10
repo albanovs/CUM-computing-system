@@ -16,7 +16,7 @@ export function DataTable({ data }) {
                             <td className="py-3 px-4">{item.id}</td>
                             <td className="py-3 px-4">{item.name}</td>
                             <td className="py-3 px-4">{item.category}</td>
-                            <td className="py-3 px-4">{item.price} ₽</td>
+                            <td className="py-3 px-4">{item.price}</td>
                         </tr>
                     ))}
                 </tbody>

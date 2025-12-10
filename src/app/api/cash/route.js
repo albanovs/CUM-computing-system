@@ -1,5 +1,5 @@
-import { connectDB } from "@/lib/db";
-import CashSession from "@/lib/models/CashSession";
+import { connectDB } from "../../../lib/db";
+import CashSession from "../../../lib/models/CashSession";
 
 await connectDB();
 

@@ -16,8 +16,9 @@ export default function Header() {
         { href: "/", label: "Главная", icon: Home },
         { href: "/cash", label: "Касса", icon: Box },
         { href: "/clients", label: "Клиенты", icon: Users },
-        { href: "/reports", label: "Отчеты", icon: File },
+        { href: "/employees", label: "Сотрудники", icon: File },
         { href: "/warehouse", label: "Склад", icon: Box },
+        { href: "/duty", label: "Долги", icon: Box },
     ];
 
     return (

@@ -7,9 +7,9 @@ import {
     deleteClient,
     updateClient,
     updateClientPayments
-} from "@/lib/slices/clientsSlice";
-import Modal from "@/components/Modal";
-import CreateModal from "@/components/CreateModal";
+} from "../../../lib/slices/clientsSlice";
+import Modal from "../../../components/Modal";
+import CreateModal from "../../../components/CreateModal";
 
 const PAGE_SIZE = 10;
 

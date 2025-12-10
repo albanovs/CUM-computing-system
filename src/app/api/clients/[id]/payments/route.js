@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { connectDB } from "@/lib/db";
-import { InstallmentModel } from "@/lib/models/all_data";
-import CashSession from "@/lib/models/CashSession";
+import { connectDB } from "../../../../../lib/db";
+import { InstallmentModel } from "../../../../../lib/models/all_data";
+import CashSession from "../../../../../lib/models/CashSession";
 
 const TELEGRAM_BOT_TOKEN = '8396661511:AAHXdQYMm_NPAN1hbFw2Owmn6kgsJ6_j2T0';
 const TELEGRAM_CHAT_ID = '-4938428460';
@@ -37,28 +37,45 @@ export async function POST(req, { params }) {
         return NextResponse.json({ error: "Клиент не найден" }, { status: 404 });
     }
 
-    // Обновляем платежи
+    // --- Обновляем платежи клиента ---
     client.payments = payments;
     client.remainingAmount = Number(remainingAmount) || 0;
     await client.save();
 
-    // Отправка Telegram
+    // --- Отправка Telegram (только новые платежи) ---
     const paidPayments = payments.filter(p => p.paid > 0);
     if (paidPayments.length > 0) {
-        let message = `<b>Клиент внёс оплату</b>\n`;
-        message += `Имя: ${client.name}\nТелефон: ${client.phoneNumber}\n`;
-        message += `<b>Платежи:</b>\n`;
-        paidPayments.forEach(p => {
-            const date = new Date(p.plan_date).toLocaleDateString("ru-RU");
-            const overdue = p.overdueDays > 0 ? ` (Просрочка: ${p.overdueDays} дн.)` : '';
-            message += `Дата: ${date}, План: ${p.plan} сом, Оплачено: ${p.paid} сом${overdue}\n`;
-        });
-        message += `\nОстаток: ${client.remainingAmount} сом\n`;
+        const lastPaidIds = client.lastPaidTelegramIds || [];
+        const newPayments = paidPayments.filter(p => !lastPaidIds.includes(p._id));
 
-        await sendTelegramMessage(message);
+        if (newPayments.length > 0) {
+            // Сохраняем ID новых платежей сразу, до отправки
+            client.lastPaidTelegramIds = [...lastPaidIds, ...newPayments.map(p => p._id)];
+            await client.save();
+
+            let message = `<b>Клиент внёс оплату</b>\n`;
+            message += `Имя: ${client.name}\nТелефон: ${client.phoneNumber}\n`;
+            message += `<b>Платежи:</b>\n`;
+
+            newPayments.forEach(p => {
+                const date = new Date(p.plan_date).toLocaleString("ru-RU", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit"
+                });
+                const overdue = p.overdueDays > 0 ? ` (Просрочка: ${p.overdueDays} дн.)` : '';
+                message += `Дата: ${date}, План: ${p.plan} ${p.currency || 'СОМ'}, Оплачено: ${p.paid} ${p.currency || 'СОМ'}${overdue}\n`;
+            });
+
+            message += `\nОстаток: ${client.remainingAmount} ${paidPayments[0]?.currency || 'СОМ'}\n`;
+
+            await sendTelegramMessage(message);
+        }
     }
 
-    // --- Добавляем оплату в кассу ---
+    // --- Работа с кассой ---
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date();
@@ -66,7 +83,6 @@ export async function POST(req, { params }) {
 
     let session = await CashSession.findOne({ date: { $gte: todayStart, $lte: todayEnd } });
 
-    // Если касса не найдена или закрыта — открываем новую
     if (!session) {
         session = await CashSession.create({
             date: new Date(),
@@ -78,15 +94,22 @@ export async function POST(req, { params }) {
         session.status = "open";
     }
 
-    // Добавляем приход
-    if (paidPayments.length > 0) {
-        const totalPaid = paidPayments.reduce((sum, p) => sum + p.paid, 0);
-        session.income.push({
-            amount: totalPaid,
-            comment: `Оплата от клиента: ${client.name}`,
-            paymentType: "cash",
-            createdAt: new Date(),
-        });
+    for (const p of paidPayments) {
+        // Проверка: не дублируем платеж в кассе
+        const exists = session.income.some(i =>
+            i.amount === p.paid &&
+            i.comment.includes(client.name)
+        );
+
+        if (!exists) {
+            session.income.push({
+                amount: p.paid,
+                currency: p.currency || "СОМ",
+                comment: `Оплата от клиента: ${client.name}`,
+                paymentType: "cash",
+                createdAt: new Date(),
+            });
+        }
     }
 
     await session.save();

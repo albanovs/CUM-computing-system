@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import { useSelector, useDispatch } from "react-redux";
-import WarehouseModal from "./WarehouseModal";
+import WarehouseModal from "./warehouseModal";
 import {
     fetchWarehouse,
     deleteWarehouseItem,
